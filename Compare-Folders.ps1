@@ -22,7 +22,8 @@ Useful for validating release differences in .NET-based deployments.
 param(
     [string]$Old = "C:\ModuleSet\Old",
     [string]$New = "C:\ModuleSet\New",
-    [bool]$IncludeSame = $false
+    [bool]$IncludeSame = $false,
+    [bool]$ShowDetailedDiff = $false
 )
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -34,6 +35,72 @@ function Write-Log {
     param([string]$text)
     $text | Out-File -Append -FilePath $LogPath -Encoding UTF8
     Write-Output $text
+}
+
+# Returns a Markdown-formatted diff between two line arrays using LCS.
+# Unchanged lines start with ' ', deletions with '-', and additions with '+'.
+function Compare-IL($lines1, $lines2) {
+    $indent = '    '
+    Write-Host ("{0}Performing intermediate language comparison..." -f $indent)
+    $output = @('{0}<details> <summary>View intermediate language diff</summary>' -f $indent)
+    $output += ''
+    $output += '{0}``` diff' -f $indent
+    
+    $m = $lines1.Count
+    $n = $lines2.Count
+
+    # Create LCS table
+    $dp = @()
+    for ($i = 0; $i -le $m; $i++) {
+        $dp += ,(@(0) * ($n + 1))
+    }
+
+    for ($i = 1; $i -le $m; $i++) {
+        if ($i % 100 -eq 0) {
+            Write-Host ("{0}Processing row $i of $m in LCS table..." -f $indent)
+        }
+        for ($j = 1; $j -le $n; $j++) {
+            if ($lines1[$i - 1] -eq $lines2[$j - 1]) {
+                $dp[$i][$j] = $dp[$i - 1][$j - 1] + 1
+            } else {
+                $dp[$i][$j] = [Math]::Max($dp[$i - 1][$j], $dp[$i][$j - 1])
+            }
+        }
+    }
+
+    # Trace back differences
+    Write-Host ("{0}Tracing back differences..." -f $indent)
+    $i = $m
+    $j = $n
+    $actions = New-Object System.Collections.Generic.List[string]
+    while ($i -gt 0 -or $j -gt 0) {
+        if ($step % 100 -eq 0) {
+            Write-Host ("{0}Tracing step $step... (i=$i, j=$j)" -f $indent)
+        }
+        if ($i -gt 0 -and $j -gt 0 -and $lines1[$i - 1] -ceq $lines2[$j - 1]) {
+            $actions.Add("$indent  {0}" -f $lines1[$i - 1])
+            $i--; $j--
+        }
+        elseif ($j -gt 0 -and ($i -eq 0 -or $dp[$i][$j - 1] -ge $dp[$i - 1][$j])) {
+            $actions.Add("$indent+ {0}" -f $lines2[$j - 1])
+            $j--
+        }
+        else {
+            $actions.Add("$indent- {0}" -f $lines1[$i - 1])
+            $i--
+        }
+    }
+
+    Write-Host ("{0}Assembling final diff output..." -f $indent)
+
+    $actions = $actions.ToArray()
+    for ($k = $actions.Count - 1; $k -ge 0; $k--) {
+        $output += $actions[$k]
+    }
+
+    $output += '{0}```' -f $indent
+    $output += '{0}</details>' -f $indent
+    return $output -join "`n"
 }
 
 # Check if folder exists, is a directory, and can be read
@@ -88,31 +155,45 @@ function Compare-FileContents {
         [object]$newInfo,
         [string]$extension
     )
+    $diffText = ""
     switch ($extension.ToLower()) {
 
         # Ignored file types: always considered identical
         { @('.pdb', '.cache', '.log') -contains $_ } {
-            return $true
+            return @{ Same = $true; Diff = "" }
         }
 
         # Text-based files: compare as raw text
         { @('.ps1', '.bat', '.md', '.txt', '.json', '.csproj', '.sln', '.cs', '.config') -contains $_ } {
-            return (Get-Content $oldInfo.FullPath -Raw) -eq (Get-Content $newInfo.FullPath -Raw)
+            return @{ Same = (Get-Content $oldInfo.FullPath -Raw) -eq (Get-Content $newInfo.FullPath -Raw); Diff = "" }
         }
 
         # .NET assemblies: compare via IL
         { @('.dll', '.exe') -contains $_ } {
             if (-not (Get-Command dotnet-ildasm -ErrorAction SilentlyContinue)) {
                 Write-Warning "dotnet-ildasm is not installed or not in PATH. Treating files as different."
-                return $false
+                return @{ Same = $false; Diff = "" }
             }
-
             $temp1 = [System.IO.Path]::GetTempFileName() + ".il"
             $temp2 = [System.IO.Path]::GetTempFileName() + ".il"
             try {
-                & dotnet-ildasm $oldInfo.FullPath > $temp1
-                & dotnet-ildasm $newInfo.FullPath > $temp2
-                $same = (Get-Content $temp1 -Raw) -eq (Get-Content $temp2 -Raw)
+                & dotnet-ildasm $oldInfo.FullPath | Out-File -FilePath $temp1 -Encoding UTF8 -Force
+                & dotnet-ildasm $newInfo.FullPath | Out-File -FilePath $temp2 -Encoding UTF8 -Force
+
+                $il1Lines = Get-Content $temp1 | Where-Object {
+                    ($_ -notmatch "^// MVID:")
+                }
+
+                $il2Lines = Get-Content $temp2 | Where-Object {
+                    ($_ -notmatch "^// MVID:")
+                }
+
+                $same = ($il1Lines -join "`n") -eq ($il2Lines -join "`n")
+
+                if ($ShowDetailedDiff -and -not $same) {
+                    Write-Host "   $($oldInfo.FullPath) vs $($newInfo.FullPath)"
+                    $diffText = Compare-IL $il1Lines $il2Lines
+                }
             } catch {
                 if ($_ -match 'access is denied|cannot disassemble|disassembly of global methods is not allowed') {
                     Write-Warning "Cannot disassemble '$($oldInfo.FullPath)' or '$($newInfo.FullPath)'. SuppressIldasm may be applied."
@@ -124,12 +205,13 @@ function Compare-FileContents {
                 Remove-Item $temp1, $temp2 -ErrorAction SilentlyContinue
             }
 
-            return $same
+            return @{ Same = $same; Diff = $diffText }
         }
 
         # Binary or unknown files: compare by cached MD5 hash
         default {
-            return $oldInfo.Hash -eq $newInfo.Hash
+            $same = $oldInfo.Hash -eq $newInfo.Hash
+            return @{ Same = $same; Diff = "" }
         }
     }
 }
@@ -187,12 +269,13 @@ function Compare-Folders {
             continue
         }
 
-        if (Compare-FileContents $oldInfo $newInfo $ext) {
+        $result = Compare-FileContents $oldInfo $newInfo $ext
+        if ($result.Same) {
             $sameCount++
             if ($IncludeSame) { $unchanged += $key }
             continue
         } else {
-            $modified += $key
+            $modified += @{ Key = $key; Diff = $result.Diff }
         }
 
         $count++
@@ -225,8 +308,12 @@ function Compare-Folders {
     Write-Log ""
 
     Write-Log "## [ * ] Modified Files"
-    foreach ($f in $modified | Sort-Object) {
-        Write-Log "- [ * ] $f"
+    foreach ($item in $modified | Sort-Object Key) {
+        Write-Log "- [ * ] $($item.Key)"
+        # Output if not an empty string or $null
+        if ($ShowDetailedDiff -and $item.Diff) {
+            Write-Log ($item.Diff)
+        }
     }
     Write-Log ""
 

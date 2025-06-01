@@ -13,7 +13,7 @@ How it works:
 - For all others: compares MD5 hashes
 
 Outputs:
-- A diff_report.txt in the same directory as the script
+- A diff_report.md in the same directory as the script
 - Categorizes added, removed, and modified files
 
 Useful for validating release differences in .NET-based deployments.
@@ -26,10 +26,10 @@ param(
 )
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$LogPath = Join-Path $scriptDir "diff_report.txt"
+$LogPath = Join-Path $scriptDir "diff_report.md"
 
 # Write to both log file and console
-# Appends text to the diff_report.txt file
+# Appends text to the diff_report.md file
 function Write-Log {
     param([string]$text)
     $text | Out-File -Append -FilePath $LogPath -Encoding UTF8
@@ -203,34 +203,39 @@ function Compare-Folders {
 
     Write-Host "  Compared $count files total. ($sameCount unchanged so far)"
 
+    Write-Log ""
     if ($IncludeSame) {
-        Write-Log "`n[=] Unchanged Files"
+        Write-Log "## [ = ] Unchanged Files"
         foreach ($f in $unchanged | Sort-Object) {
-            Write-Log "  = $f"
+            Write-Log "- [ = ] $f"
         }
+        Write-Log ""
     }
 
-    Write-Log "`n[+] Added"
+    Write-Log "## [ + ] Added Files"
     foreach ($f in $onlyNew | Sort-Object) {
-        Write-Log "  + $($newMap[$f].FullPath)"
+        Write-Log "- [ + ] $($newMap[$f].FullPath)"
     }
+    Write-Log ""
 
-    Write-Log "`n[-] Removed"
+    Write-Log "## [ - ] Removed Files"
     foreach ($f in $onlyOld | Sort-Object) {
-        Write-Log "  - $($oldMap[$f].FullPath)"
+        Write-Log "- [ - ] $($oldMap[$f].FullPath)"
     }
+    Write-Log ""
 
-    Write-Log "`n[*] Modified"
+    Write-Log "## [ * ] Modified Files"
     foreach ($f in $modified | Sort-Object) {
-        Write-Log "  * $f"
+        Write-Log "- [ * ] $f"
     }
+    Write-Log ""
 
-    Write-Log "`n[#] Summary"
-    if ($IncludeSame) { Write-Log "  Unchanged: $($unchanged.Count)" }
-    Write-Log "  Added   : $($onlyNew.Count)"
-    Write-Log "  Removed : $($onlyOld.Count)"
-    Write-Log "  Modified: $($modified.Count)"
-    Write-Log "  Compared: $($oldMap.Count) (old) vs $($newMap.Count) (new)"
+    Write-Log "`## Summary"
+    if ($IncludeSame) { Write-Log "- Unchanged: $($unchanged.Count)" }
+    Write-Log "- Added    : $($onlyNew.Count)"
+    Write-Log "- Removed  : $($onlyOld.Count)"
+    Write-Log "- Modified : $($modified.Count)"
+    Write-Log "- Compared : $($oldMap.Count) (old) vs $($newMap.Count) (new)"
 }
 
 # Clean previous log
@@ -240,9 +245,9 @@ try {
     Write-Host "Starting folder diff..."
 
     # Log header with timestamp and paths
-    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Folders Compared" | Out-File -FilePath $LogPath -Encoding UTF8
-    "  Old: $Old" | Out-File -Append -FilePath $LogPath -Encoding UTF8
-    "  New: $New" | Out-File -Append -FilePath $LogPath -Encoding UTF8
+    "# Folder Diff Report [$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')]" | Out-File -FilePath $LogPath -Encoding UTF8
+    "- Old: $Old" | Out-File -Append -FilePath $LogPath -Encoding UTF8
+    "- New: $New" | Out-File -Append -FilePath $LogPath -Encoding UTF8
 
     Compare-Folders -oldPath $Old -newPath $New -IncludeSame $IncludeSame -FileHashProgressInterval 1000 -CompareProgressInterval 10
 

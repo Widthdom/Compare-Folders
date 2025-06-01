@@ -42,9 +42,10 @@
 
 - `diff_report.txt` ファイルが、スクリプトと同じフォルダに生成されます。
 - 内容は以下の3つのカテゴリに分類されます：
+  - `Unchanged Files`：新旧両方のフォルダにあり、中身も同一（IncludeSameがtrueのときのみ）
   - `Added Files`：新しいフォルダにしか存在しないファイル
   - `Removed Files`：旧フォルダにしか存在しないファイル
-  - `Modified Files`：両方に存在するが中身が異なるファイル
+  - `Modified Files`：新旧両方のフォルダに存在するが中身が異なるファイル
 
 ---
 
@@ -109,9 +110,10 @@
   1. `Confirm-Folder` で対象フォルダを検証
   2. `Get-FileHashes` で両フォルダのファイル情報を取得
   3. ファイルリストを比較し、以下に分類：
+     - `Unchanged Files`: 新旧両方のフォルダにあり、中身も同一（IncludeSameがtrueのときのみ）
      - `Added Files`: 新フォルダのみに存在
      - `Removed Files`: 旧フォルダのみに存在
-     - `Modified Files`: 両方にあるが中身が異なる
+     - `Modified Files`: 新旧両方のフォルダにあるが中身が異なる
   4. 各結果を `Write-Log` によって `diff_report.txt` に出力
 
 - 戻り値: なし（ログ出力のみ）
@@ -123,6 +125,39 @@
 ```powershell
 .\Compare-Folders.ps1 -Old "C:\OldVersion" -New "C:\NewVersion"
 ```
+
+---
+
+## オプション
+
+- `-Old`  
+  比較対象の旧フォルダパス。
+
+- `-New`  
+  比較対象の新フォルダパス。
+
+- `-IncludeSame`  
+  （ブーリアン）true の場合、レポートに両方のフォルダに同一のファイルも含める。  
+  false の場合、差分のみがレポートされる。
+
+## 使用例
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File "Compare-Folders.ps1" -Old "D:\Old" -New "D:\New" -IncludeSame:true
+```
+
+## レポート出力
+
+- `IncludeSame` が true の場合、レポートには以下が表示される：
+  - = 両方に存在し、内容も同一のファイル
+  - \- Old のみのファイル
+  - \+ New のみのファイル
+  - \* 両方に存在し、内容が異なるファイル
+
+- `IncludeSame` が false の場合、レポートには差分のみが表示される。
+  - \- Old のみのファイル
+  - \+ New のみのファイル
+  - \* 両方に存在し、内容が異なるファイル
 
 ---
 

@@ -21,7 +21,8 @@ Useful for validating release differences in .NET-based deployments.
 
 param(
     [string]$Old = "C:\ModuleSet\Old",
-    [string]$New = "C:\ModuleSet\New"
+    [string]$New = "C:\ModuleSet\New",
+    [bool]$IncludeSame = $false
 )
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -138,6 +139,7 @@ function Compare-Folders {
     param (
         [string]$oldPath,
         [string]$newPath,
+        [bool]$IncludeSame = $false,
         [int]$FileHashProgressInterval = 1000,
         [int]$CompareProgressInterval = 10
     )
@@ -167,6 +169,7 @@ function Compare-Folders {
 
     # Progress-aware comparison
     $modified = @()
+    $unchanged = @()
     $count = 0
     $sameCount = 0
 
@@ -180,11 +183,13 @@ function Compare-Folders {
         # Skip full comparison if hashes already match
         if ($oldInfo.Hash -eq $newInfo.Hash) {
             $sameCount++
+            if ($IncludeSame) { $unchanged += $key }
             continue
         }
 
         if (Compare-FileContents $oldInfo $newInfo $ext) {
             $sameCount++
+            if ($IncludeSame) { $unchanged += $key }
             continue
         } else {
             $modified += $key
@@ -197,6 +202,13 @@ function Compare-Folders {
     }
 
     Write-Host "  Compared $count files total. ($sameCount unchanged so far)"
+
+    if ($IncludeSame) {
+        Write-Log "`n[=] Unchanged Files"
+        foreach ($f in $unchanged | Sort-Object) {
+            Write-Log "  = $f"
+        }
+    }
 
     Write-Log "`n[+] Added"
     foreach ($f in $onlyNew | Sort-Object) {
@@ -213,7 +225,8 @@ function Compare-Folders {
         Write-Log "  * $f"
     }
 
-    Write-Log "`n[=] Summary"
+    Write-Log "`n[#] Summary"
+    if ($IncludeSame) { Write-Log "  Unchanged: $($unchanged.Count)" }
     Write-Log "  Added   : $($onlyNew.Count)"
     Write-Log "  Removed : $($onlyOld.Count)"
     Write-Log "  Modified: $($modified.Count)"
@@ -231,7 +244,7 @@ try {
     "  Old: $Old" | Out-File -Append -FilePath $LogPath -Encoding UTF8
     "  New: $New" | Out-File -Append -FilePath $LogPath -Encoding UTF8
 
-    Compare-Folders -oldPath $Old -newPath $New -FileHashProgressInterval 1000 -CompareProgressInterval 10
+    Compare-Folders -oldPath $Old -newPath $New -IncludeSame $IncludeSame -FileHashProgressInterval 1000 -CompareProgressInterval 10
 
     Write-Host ""
     Write-Host "Report saved to: $LogPath"

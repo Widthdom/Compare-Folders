@@ -9,7 +9,7 @@ Requirements:
 How it works:
 - For .pdb, .cache, .log files: these are ignored and considered identical
 - For .dll and .exe files: compares IL code using `dotnet-ildasm`
-- For .ps1, .bat, .md, .txt, .json, .csproj, .sln, .cs, .config files: compares raw text content
+- For .ps1, .bat, .md, .txt, .yml, .json, .csproj, .sln, .cs, .config files: compares raw text content
 - For all others: compares MD5 hashes
 
 Outputs:
@@ -164,7 +164,7 @@ function Compare-FileContents {
         }
 
         # Text-based files: compare as raw text
-        { @('.ps1', '.bat', '.md', '.txt', '.json', '.csproj', '.sln', '.cs', '.config') -contains $_ } {
+        { @('.ps1', '.bat', '.md', '.txt', '.yml', '.json', '.csproj', '.sln', '.cs', '.config') -contains $_ } {
             return @{ Same = (Get-Content $oldInfo.FullPath -Raw) -eq (Get-Content $newInfo.FullPath -Raw); Diff = "" }
         }
 
